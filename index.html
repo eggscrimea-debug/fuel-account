@@ -102,86 +102,401 @@ nav button{background:transparent;color:var(--muted);padding:7px 18px;font-size:
 </form></div></div>
 
 <script>
-const $=id=>document.getElementById(id);
-const KEY="fuel-account-v2";
-let db=JSON.parse(localStorage.getItem(KEY)||'{"purchases":[],"sales":[],"expenses":[]}');
-const rub=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2}).format(Number(n)||0);
-const num=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(n)||0);
-const today=()=>new Date().toISOString().slice(0,10);
-const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-function persist(){localStorage.setItem(KEY,JSON.stringify(db));render();}
-function nextId(){let n=1;while(db.purchases.some(x=>x.id==="З-"+String(n).padStart(3,"0")))n++;return "З-"+String(n).padStart(3,"0")}
-function stats(p){
- let ss=db.sales.filter(x=>x.purchaseId===p.id), ee=db.expenses.filter(x=>x.purchaseId===p.id);
- let sold=ss.reduce((a,x)=>a+x.qty,0), revenue=ss.reduce((a,x)=>a+x.qty*x.price,0), exp=ee.reduce((a,x)=>a+x.amount,0);
- let cost=sold*p.buyPrice; return {sold,revenue,cost,exp,profit:revenue-cost-exp,rest:p.qty-sold};
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const KEY = "fuel-account-v3";
+
+let db;
+try {
+  db = JSON.parse(localStorage.getItem(KEY) || '{"purchases":[],"sales":[],"expenses":[]}');
+  if (!db || !Array.isArray(db.purchases) || !Array.isArray(db.sales) || !Array.isArray(db.expenses)) {
+    throw new Error("bad data");
+  }
+} catch (e) {
+  db = { purchases: [], sales: [], expenses: [] };
 }
-function render(){
- let rev=0,cost=0,exp=0,profit=0;
- db.purchases.forEach(p=>{let x=stats(p);rev+=x.revenue;cost+=x.cost;exp+=x.exp;profit+=x.profit});
- kRevenue.textContent=rub(rev);kCost.textContent=rub(cost);kExpenses.textContent=rub(exp);kProfit.textContent=rub(profit);kProfit.className="value "+(profit<0?"red":"green");
- purchaseCount.textContent=db.purchases.length+" шт.";
- purchaseList.innerHTML=db.purchases.length?db.purchases.slice().reverse().map(p=>{let x=stats(p),i=db.purchases.indexOf(p);
- return `<div class="card"><div class="row"><div><b>${esc(p.id)}</b> <span class="tag">${esc(p.brand)}</span><div class="small">${esc(p.date)} · ${rub(p.buyPrice)}/л · куплено ${num(p.qty)} л</div></div><div class="profit ${x.profit<0?'red':'green'}">${rub(x.profit)}</div></div><div class="small" style="margin-top:10px">Продано ${num(x.sold)} л · остаток ${num(x.rest)} л · выручка ${rub(x.revenue)} · расходы ${rub(x.exp)}</div><div class="actions2"><button class="secondary smallbtn" onclick="editPurchase(${i})">Изменить</button><button class="danger smallbtn" onclick="deletePurchase(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Пока нет закупок</div>';
- salesList.innerHTML=db.sales.length?db.sales.slice().reverse().map((x,revI)=>{let i=db.sales.length-1-revI;return `<div class="card"><div class="row"><div><b>${esc(x.purchaseId)}</b><div class="small">${esc(x.date)} · ${num(x.qty)} л × ${rub(x.price)}/л</div></div><b>${rub(x.qty*x.price)}</b></div>${x.comment?`<div class="small" style="margin-top:7px">${esc(x.comment)}</div>`:""}<div class="actions2"><button class="danger smallbtn" onclick="deleteSale(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Продаж пока нет</div>';
- expensesList.innerHTML=db.expenses.length?db.expenses.slice().reverse().map((x,revI)=>{let i=db.expenses.length-1-revI;return `<div class="card"><div class="row"><div><b>${esc(x.purchaseId)}</b><div class="small">${esc(x.date)} · ${esc(x.type)}</div></div><b>${rub(x.amount)}</b></div>${x.comment?`<div class="small" style="margin-top:7px">${esc(x.comment)}</div>`:""}<div class="actions2"><button class="danger smallbtn" onclick="deleteExpense(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Расходов пока нет</div>';
+
+const ui = {
+  kRevenue: $("kRevenue"),
+  kCost: $("kCost"),
+  kExpenses: $("kExpenses"),
+  kProfit: $("kProfit"),
+  purchaseCount: $("purchaseCount"),
+  purchaseList: $("purchaseList"),
+  salesList: $("salesList"),
+  expensesList: $("expensesList"),
+  modal: $("modal"),
+  form: $("form"),
+  formTitle: $("formTitle"),
+  type: $("type"),
+  editIndex: $("editIndex"),
+  date: $("date"),
+  purchaseFields: $("purchaseFields"),
+  saleFields: $("saleFields"),
+  expenseFields: $("expenseFields"),
+  purchaseId: $("purchaseId"),
+  brand: $("brand"),
+  qty: $("qty"),
+  price: $("price"),
+  salePurchase: $("salePurchase"),
+  saleQty: $("saleQty"),
+  salePrice: $("salePrice"),
+  saleComment: $("saleComment"),
+  expensePurchase: $("expensePurchase"),
+  expenseType: $("expenseType"),
+  expenseAmount: $("expenseAmount"),
+  expenseComment: $("expenseComment"),
+  importFile: $("importFile")
+};
+
+const rub = (n) => new Intl.NumberFormat("ru-RU", {
+  style: "currency",
+  currency: "RUB",
+  maximumFractionDigits: 2
+}).format(Number(n) || 0);
+
+const num = (n) => new Intl.NumberFormat("ru-RU", {
+  maximumFractionDigits: 2
+}).format(Number(n) || 0);
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (m) => ({
+  "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+}[m]));
+
+function persist() {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(db));
+  } catch (e) {
+    alert("Не удалось сохранить данные на этом устройстве. Проверь разрешения Safari для сайта.");
+    return false;
+  }
+  render();
+  return true;
 }
-function fillSelect(el){el.innerHTML=db.purchases.length?db.purchases.map(p=>`<option value="${esc(p.id)}">${esc(p.id)} — ${esc(p.brand)} — ${num(p.qty)} л</option>`).join(""):'<option value="">Нет закупок</option>'}
-function openForm(t, edit=-1){
- const el={form:$('form'),date:$('date'),type:$('type'),editIndex:$('editIndex'),purchaseFields:$('purchaseFields'),saleFields:$('saleFields'),expenseFields:$('expenseFields'),formTitle:$('formTitle'),purchaseId:$('purchaseId'),brand:$('brand'),qty:$('qty'),price:$('price'),salePurchase:$('salePurchase'),saleQty:$('saleQty'),salePrice:$('salePrice'),saleComment:$('saleComment'),expensePurchase:$('expensePurchase'),expenseType:$('expenseType'),expenseAmount:$('expenseAmount'),expenseComment:$('expenseComment'),modal:$('modal')};
- el.form.reset(); el.date.value=today(); el.type.value=t; el.editIndex.value=edit;
- el.purchaseFields.style.display=t==='purchase'?'block':'none'; el.saleFields.style.display=t==='sale'?'block':'none'; el.expenseFields.style.display=t==='expense'?'block':'none';
- el.formTitle.textContent=(edit>=0?'Изменить ':'Новая ')+(t==='purchase'?'закупку':t==='sale'?'продажу':'расход');
- if(t==='purchase'){
-   if(edit>=0){let p=db.purchases[edit];el.date.value=p.date;el.purchaseId.value=p.id;el.brand.value=p.brand;el.qty.value=p.qty;el.price.value=p.buyPrice}
-   else el.purchaseId.value=nextId();
- }
- if(t==='sale'){
-   fillSelect(el.salePurchase);
-   if(edit>=0){let x=db.sales[edit];el.date.value=x.date;el.salePurchase.value=x.purchaseId;el.saleQty.value=x.qty;el.salePrice.value=x.price;el.saleComment.value=x.comment||''}
- }
- if(t==='expense'){
-   fillSelect(el.expensePurchase);
-   if(edit>=0){let x=db.expenses[edit];el.date.value=x.date;el.expensePurchase.value=x.purchaseId;el.expenseType.value=x.type;el.expenseAmount.value=x.amount;el.expenseComment.value=x.comment||''}
- }
- el.modal.classList.add('show');
+
+function nextId() {
+  let n = 1;
+  while (db.purchases.some((x) => x.id === "З-" + String(n).padStart(3, "0"))) n++;
+  return "З-" + String(n).padStart(3, "0");
 }
-function closeForm(){modal.classList.remove("show")}
-function saveForm(ev){
- ev.preventDefault();
- const el={type:$('type'),editIndex:$('editIndex'),purchaseId:$('purchaseId'),date:$('date'),brand:$('brand'),qty:$('qty'),price:$('price'),salePurchase:$('salePurchase'),saleQty:$('saleQty'),salePrice:$('salePrice'),saleComment:$('saleComment'),expensePurchase:$('expensePurchase'),expenseType:$('expenseType'),expenseAmount:$('expenseAmount'),expenseComment:$('expenseComment')};
- let t=el.type.value, i=+el.editIndex.value;
- if(t==='purchase'){
-  let id=el.purchaseId.value.trim();
-  if(!id)return alert('Укажите ID закупки.');
-  if(db.purchases.some((x,j)=>x.id===id&&j!==i))return alert('Такой ID уже есть.');
-  let old=i>=0?db.purchases[i]:null;
-  let sold=old?db.sales.filter(x=>x.purchaseId===old.id).reduce((a,x)=>a+x.qty,0):0;
-  if(+el.qty.value<sold)return alert('Количество закупки нельзя сделать меньше уже проданного объема.');
-  let obj={id:id,date:el.date.value,brand:el.brand.value.trim(),qty:+el.qty.value,buyPrice:+el.price.value};
-  if(i>=0){if(old.id!==obj.id){db.sales.forEach(x=>{if(x.purchaseId===old.id)x.purchaseId=obj.id});db.expenses.forEach(x=>{if(x.purchaseId===old.id)x.purchaseId=obj.id})}db.purchases[i]=obj}else db.purchases.push(obj);
- }else if(t==='sale'){
-  let p=db.purchases.find(x=>x.id===el.salePurchase.value);let other=db.sales.reduce((a,x,j)=>a+(j===i&&i>=0?0:(x.purchaseId===el.salePurchase.value?x.qty:0)),0);
-  if(!p||+el.saleQty.value>p.qty-other+1e-9)return alert('Продажа больше доступного остатка.');
-  let obj={date:el.date.value,purchaseId:el.salePurchase.value,qty:+el.saleQty.value,price:+el.salePrice.value,comment:el.saleComment.value.trim()};
-  if(i>=0)db.sales[i]=obj;else db.sales.push(obj);
- }else{
-  let obj={date:el.date.value,purchaseId:el.expensePurchase.value,type:el.expenseType.value.trim(),amount:+el.expenseAmount.value,comment:el.expenseComment.value.trim()};
-  if(i>=0)db.expenses[i]=obj;else db.expenses.push(obj);
- }
- persist();closeForm();
+
+function stats(p) {
+  const sales = db.sales.filter((x) => x.purchaseId === p.id);
+  const expenses = db.expenses.filter((x) => x.purchaseId === p.id);
+  const sold = sales.reduce((a, x) => a + Number(x.qty || 0), 0);
+  const revenue = sales.reduce((a, x) => a + Number(x.qty || 0) * Number(x.price || 0), 0);
+  const exp = expenses.reduce((a, x) => a + Number(x.amount || 0), 0);
+  const cost = sold * Number(p.buyPrice || 0);
+  return {
+    sold,
+    revenue,
+    cost,
+    exp,
+    profit: revenue - cost - exp,
+    rest: Number(p.qty || 0) - sold
+  };
 }
-function editPurchase(i){openForm("purchase",i)}
-function deletePurchase(i){let p=db.purchases[i];if(!confirm(`Удалить закупку ${p.id}? Все связанные продажи и расходы тоже будут удалены.`))return;db.purchases.splice(i,1);db.sales=db.sales.filter(x=>x.purchaseId!==p.id);db.expenses=db.expenses.filter(x=>x.purchaseId!==p.id);persist()}
-function deleteSale(i){if(confirm("Удалить эту продажу?")){db.sales.splice(i,1);persist()}}
-function deleteExpense(i){if(confirm("Удалить этот расход?")){db.expenses.splice(i,1);persist()}}
-function backup(){
- let blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="учет-топлива-"+today()+".json";a.click();URL.revokeObjectURL(a.href)
+
+function render() {
+  let revenue = 0, cost = 0, expenses = 0, profit = 0;
+
+  db.purchases.forEach((p) => {
+    const x = stats(p);
+    revenue += x.revenue;
+    cost += x.cost;
+    expenses += x.exp;
+    profit += x.profit;
+  });
+
+  ui.kRevenue.textContent = rub(revenue);
+  ui.kCost.textContent = rub(cost);
+  ui.kExpenses.textContent = rub(expenses);
+  ui.kProfit.textContent = rub(profit);
+  ui.kProfit.className = "value " + (profit < 0 ? "red" : "green");
+
+  ui.purchaseCount.textContent = db.purchases.length + " шт.";
+
+  if (db.purchases.length) {
+    ui.purchaseList.innerHTML = db.purchases.slice().reverse().map((p) => {
+      const x = stats(p);
+      const i = db.purchases.indexOf(p);
+      return `<div class="card">
+        <div class="row">
+          <div>
+            <b>${esc(p.id)}</b> <span class="tag">${esc(p.brand)}</span>
+            <div class="small">${esc(p.date)} · ${rub(p.buyPrice)}/л · куплено ${num(p.qty)} л</div>
+          </div>
+          <div class="profit ${x.profit < 0 ? "red" : "green"}">${rub(x.profit)}</div>
+        </div>
+        <div class="small" style="margin-top:10px">
+          Продано ${num(x.sold)} л · остаток ${num(x.rest)} л · выручка ${rub(x.revenue)} · расходы ${rub(x.exp)}
+        </div>
+        <div class="actions2">
+          <button class="secondary smallbtn" onclick="editPurchase(${i})">Изменить</button>
+          <button class="danger smallbtn" onclick="deletePurchase(${i})">Удалить</button>
+        </div>
+      </div>`;
+    }).join("");
+  } else {
+    ui.purchaseList.innerHTML = '<div class="card empty">Пока нет закупок</div>';
+  }
+
+  if (db.sales.length) {
+    ui.salesList.innerHTML = db.sales.slice().reverse().map((x, reverseIndex) => {
+      const i = db.sales.length - 1 - reverseIndex;
+      return `<div class="card">
+        <div class="row">
+          <div>
+            <b>${esc(x.purchaseId)}</b>
+            <div class="small">${esc(x.date)} · ${num(x.qty)} л × ${rub(x.price)}/л</div>
+          </div>
+          <b>${rub(Number(x.qty || 0) * Number(x.price || 0))}</b>
+        </div>
+        ${x.comment ? `<div class="small" style="margin-top:7px">${esc(x.comment)}</div>` : ""}
+        <div class="actions2"><button class="danger smallbtn" onclick="deleteSale(${i})">Удалить</button></div>
+      </div>`;
+    }).join("");
+  } else {
+    ui.salesList.innerHTML = '<div class="card empty">Продаж пока нет</div>';
+  }
+
+  if (db.expenses.length) {
+    ui.expensesList.innerHTML = db.expenses.slice().reverse().map((x, reverseIndex) => {
+      const i = db.expenses.length - 1 - reverseIndex;
+      return `<div class="card">
+        <div class="row">
+          <div>
+            <b>${esc(x.purchaseId)}</b>
+            <div class="small">${esc(x.date)} · ${esc(x.type)}</div>
+          </div>
+          <b>${rub(x.amount)}</b>
+        </div>
+        ${x.comment ? `<div class="small" style="margin-top:7px">${esc(x.comment)}</div>` : ""}
+        <div class="actions2"><button class="danger smallbtn" onclick="deleteExpense(${i})">Удалить</button></div>
+      </div>`;
+    }).join("");
+  } else {
+    ui.expensesList.innerHTML = '<div class="card empty">Расходов пока нет</div>';
+  }
 }
-function restore(ev){
- let f=ev.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.purchases||!x.sales||!x.expenses)throw 0;if(!confirm("Заменить текущие данные данными из резервной копии?"))return;db=x;persist();alert("Данные восстановлены.")}catch(e){alert("Файл резервной копии не распознан.")}ev.target.value=""};r.readAsText(f)
+
+function fillSelect(selectEl, selectedValue = "") {
+  if (!db.purchases.length) {
+    selectEl.innerHTML = '<option value="">Нет закупок</option>';
+    return;
+  }
+  selectEl.innerHTML = db.purchases.map((p) =>
+    `<option value="${esc(p.id)}">${esc(p.id)} — ${esc(p.brand)} — ${num(p.qty)} л</option>`
+  ).join("");
+  if (selectedValue) selectEl.value = selectedValue;
 }
-function showSection(n){document.querySelectorAll(".section").forEach(x=>x.classList.remove("active"));document.getElementById(n).classList.add("active")}
+
+function openForm(type, edit = -1) {
+  ui.form.reset();
+  ui.date.value = today();
+  ui.type.value = type;
+  ui.editIndex.value = String(edit);
+
+  ui.purchaseFields.style.display = type === "purchase" ? "block" : "none";
+  ui.saleFields.style.display = type === "sale" ? "block" : "none";
+  ui.expenseFields.style.display = type === "expense" ? "block" : "none";
+
+  ui.formTitle.textContent =
+    (edit >= 0 ? "Изменить " : "Новая ") +
+    (type === "purchase" ? "закупку" : type === "sale" ? "продажу" : "расход");
+
+  if (type === "purchase") {
+    if (edit >= 0) {
+      const p = db.purchases[edit];
+      ui.date.value = p.date;
+      ui.purchaseId.value = p.id;
+      ui.brand.value = p.brand;
+      ui.qty.value = p.qty;
+      ui.price.value = p.buyPrice;
+    } else {
+      ui.purchaseId.value = nextId();
+    }
+  } else if (type === "sale") {
+    fillSelect(ui.salePurchase);
+  } else {
+    fillSelect(ui.expensePurchase);
+  }
+
+  ui.modal.classList.add("show");
+}
+
+function closeForm() {
+  ui.modal.classList.remove("show");
+}
+
+function saveForm(ev) {
+  ev.preventDefault();
+
+  const type = ui.type.value;
+  const editIndex = Number(ui.editIndex.value);
+  const index = Number.isFinite(editIndex) ? editIndex : -1;
+
+  if (type === "purchase") {
+    const id = ui.purchaseId.value.trim();
+    const brand = ui.brand.value.trim();
+    const qty = Number(ui.qty.value);
+    const buyPrice = Number(ui.price.value);
+
+    if (!id || !brand || !(qty > 0) || !(buyPrice >= 0)) {
+      alert("Заполни все поля закупки.");
+      return;
+    }
+
+    if (db.purchases.some((x, j) => x.id === id && j !== index)) {
+      alert("Такой ID закупки уже есть.");
+      return;
+    }
+
+    const old = index >= 0 ? db.purchases[index] : null;
+    const sold = old
+      ? db.sales.filter((x) => x.purchaseId === old.id).reduce((a, x) => a + Number(x.qty || 0), 0)
+      : 0;
+
+    if (qty < sold) {
+      alert("Количество закупки нельзя сделать меньше уже проданного объема.");
+      return;
+    }
+
+    const obj = { id, date: ui.date.value, brand, qty, buyPrice };
+
+    if (old) {
+      if (old.id !== obj.id) {
+        db.sales.forEach((x) => { if (x.purchaseId === old.id) x.purchaseId = obj.id; });
+        db.expenses.forEach((x) => { if (x.purchaseId === old.id) x.purchaseId = obj.id; });
+      }
+      db.purchases[index] = obj;
+    } else {
+      db.purchases.push(obj);
+    }
+  } else if (type === "sale") {
+    const purchaseId = ui.salePurchase.value;
+    const qty = Number(ui.saleQty.value);
+    const price = Number(ui.salePrice.value);
+    const p = db.purchases.find((x) => x.id === purchaseId);
+
+    if (!p || !(qty > 0) || !(price >= 0)) {
+      alert("Заполни данные продажи.");
+      return;
+    }
+
+    const alreadySold = db.sales.reduce((a, x, j) =>
+      a + (j === index && index >= 0 ? 0 : (x.purchaseId === purchaseId ? Number(x.qty || 0) : 0)), 0);
+
+    if (qty > Number(p.qty) - alreadySold + 1e-9) {
+      alert("Продажа больше доступного остатка.");
+      return;
+    }
+
+    const obj = {
+      date: ui.date.value,
+      purchaseId,
+      qty,
+      price,
+      comment: ui.saleComment.value.trim()
+    };
+
+    if (index >= 0) db.sales[index] = obj;
+    else db.sales.push(obj);
+  } else if (type === "expense") {
+    const purchaseId = ui.expensePurchase.value;
+    const expenseType = ui.expenseType.value.trim();
+    const amount = Number(ui.expenseAmount.value);
+
+    if (!purchaseId || !expenseType || !(amount >= 0)) {
+      alert("Заполни данные расхода.");
+      return;
+    }
+
+    const obj = {
+      date: ui.date.value,
+      purchaseId,
+      type: expenseType,
+      amount,
+      comment: ui.expenseComment.value.trim()
+    };
+
+    if (index >= 0) db.expenses[index] = obj;
+    else db.expenses.push(obj);
+  }
+
+  if (persist()) closeForm();
+}
+
+function editPurchase(index) {
+  openForm("purchase", index);
+}
+
+function deletePurchase(index) {
+  const p = db.purchases[index];
+  if (!p) return;
+  if (!confirm(`Удалить закупку ${p.id}? Все связанные продажи и расходы тоже будут удалены.`)) return;
+  db.purchases.splice(index, 1);
+  db.sales = db.sales.filter((x) => x.purchaseId !== p.id);
+  db.expenses = db.expenses.filter((x) => x.purchaseId !== p.id);
+  persist();
+}
+
+function deleteSale(index) {
+  if (!confirm("Удалить эту продажу?")) return;
+  db.sales.splice(index, 1);
+  persist();
+}
+
+function deleteExpense(index) {
+  if (!confirm("Удалить этот расход?")) return;
+  db.expenses.splice(index, 1);
+  persist();
+}
+
+function backup() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "учет-топлива-" + today() + ".json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+function restore(ev) {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data || !Array.isArray(data.purchases) || !Array.isArray(data.sales) || !Array.isArray(data.expenses)) {
+        throw new Error("bad backup");
+      }
+      if (!confirm("Заменить текущие данные данными из резервной копии?")) return;
+      db = data;
+      persist();
+      alert("Данные восстановлены.");
+    } catch (e) {
+      alert("Файл резервной копии не распознан.");
+    } finally {
+      ev.target.value = "";
+    }
+  };
+  reader.readAsText(file);
+}
+
+function showSection(name) {
+  document.querySelectorAll(".section").forEach((section) => section.classList.remove("active"));
+  const target = $(name);
+  if (target) target.classList.add("active");
+}
+
 render();
 </script>
 </body></html>
