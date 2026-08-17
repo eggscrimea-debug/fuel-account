@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#17365D">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Топливо">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>Учет топлива</title>
+<style>
+:root{--blue:#17365D;--blue2:#1F4E78;--bg:#f4f6f8;--card:#fff;--text:#17212b;--muted:#6b7280;--green:#16834a;--red:#c62828;--line:#e5e7eb;--yellow:#fff8dc}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+header{background:var(--blue);color:#fff;padding:calc(14px + env(safe-area-inset-top)) 16px 14px;position:sticky;top:0;z-index:5}
+header h1{margin:0;font-size:22px}.wrap{max-width:900px;margin:auto;padding:14px 14px 90px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:0 1px 2px #00000008}
+.kpi .label{font-size:12px;color:var(--muted)}.kpi .value{font-size:20px;font-weight:700;margin-top:5px}
+.green{color:var(--green)}.red{color:var(--red)}
+.actions{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+button{border:0;border-radius:13px;padding:13px 10px;font-size:15px;font-weight:650;background:var(--blue2);color:#fff}
+button.secondary{background:#e9eef4;color:var(--blue)}button.danger{background:#fdeaea;color:var(--red)}
+button.smallbtn{padding:8px 10px;font-size:13px}
+h2{font-size:18px;margin:20px 2px 10px}.list{display:flex;flex-direction:column;gap:10px}
+.row{display:flex;justify-content:space-between;gap:12px;align-items:center}.small{font-size:13px;color:var(--muted)}
+.profit{font-weight:750;font-size:18px}.tag{display:inline-block;background:#eef3f8;color:var(--blue);border-radius:999px;padding:4px 8px;font-size:12px}
+.actions2{display:flex;gap:7px;margin-top:10px}.actions2 button{flex:1}
+.modal{position:fixed;inset:0;background:#0007;display:none;align-items:flex-end;z-index:20}.modal.show{display:flex}
+.sheet{background:#fff;width:100%;max-height:94vh;overflow:auto;border-radius:22px 22px 0 0;padding:18px 16px calc(22px + env(safe-area-inset-bottom))}
+label{display:block;font-size:13px;font-weight:650;margin:12px 0 6px}input,select{width:100%;padding:13px;border:1px solid #d1d5db;border-radius:11px;font-size:16px;background:#fff}
+.form-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
+nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:flex;justify-content:center;z-index:10}
+nav button{background:transparent;color:var(--muted);padding:7px 18px;font-size:12px}.empty{text-align:center;color:var(--muted);padding:24px 10px}
+.section{display:none}.section.active{display:block}.topline{display:flex;justify-content:space-between;align-items:center}
+.danger-link{color:var(--red);background:none;padding:5px}.settings{margin-top:18px}
+@media(min-width:700px){.grid{grid-template-columns:repeat(4,1fr)}.actions{grid-template-columns:repeat(3,180px)}.modal{align-items:center;justify-content:center}.sheet{max-width:500px;border-radius:20px}}
+</style>
+</head>
+<body>
+<header><h1>Учет топлива</h1></header>
+<div class="wrap">
+<section id="home" class="section active">
+<div class="grid">
+<div class="card kpi"><div class="label">Выручка</div><div id="kRevenue" class="value">0 ₽</div></div>
+<div class="card kpi"><div class="label">Себестоимость</div><div id="kCost" class="value">0 ₽</div></div>
+<div class="card kpi"><div class="label">Расходы</div><div id="kExpenses" class="value">0 ₽</div></div>
+<div class="card kpi"><div class="label">Прибыль</div><div id="kProfit" class="value green">0 ₽</div></div>
+</div>
+<div class="actions">
+<button onclick="openForm('purchase')">＋ Закупка</button>
+<button onclick="openForm('sale')">＋ Продажа</button>
+<button onclick="openForm('expense')">＋ Расход</button>
+</div>
+<div class="topline"><h2>Закупки</h2><span id="purchaseCount" class="small"></span></div>
+<div id="purchaseList" class="list"></div>
+<div class="settings card">
+<b>Резервная копия</b>
+<div class="small" style="margin:6px 0 10px">Сохрани копию данных в «Файлы» и используй её для восстановления на этом или другом телефоне.</div>
+<div class="actions2">
+<button class="secondary smallbtn" onclick="backup()">Экспорт</button>
+<button class="secondary smallbtn" onclick="document.getElementById('importFile').click()">Импорт</button>
+</div>
+<input id="importFile" type="file" accept=".json,application/json" style="display:none" onchange="restore(event)">
+</div>
+</section>
+<section id="sales" class="section">
+<div class="topline"><h2>Продажи</h2><button onclick="openForm('sale')">＋ Продажа</button></div>
+<div id="salesList" class="list"></div>
+</section>
+<section id="expenses" class="section">
+<div class="topline"><h2>Расходы</h2><button onclick="openForm('expense')">＋ Расход</button></div>
+<div id="expensesList" class="list"></div>
+</section>
+</div>
+<nav><button onclick="showSection('home')">Главная</button><button onclick="showSection('sales')">Продажи</button><button onclick="showSection('expenses')">Расходы</button></nav>
+
+<div id="modal" class="modal" onclick="if(event.target===this)closeForm()"><div class="sheet">
+<div class="topline"><h2 id="formTitle">Добавить</h2><button class="danger-link" onclick="closeForm()">Закрыть</button></div>
+<form id="form" onsubmit="saveForm(event)">
+<input type="hidden" id="type"><input type="hidden" id="editIndex">
+<label>Дата</label><input id="date" type="date" required>
+<div id="purchaseFields">
+<label>ID закупки</label><input id="purchaseId" placeholder="Например: З-001" required>
+<label>Марка топлива</label><input id="brand" placeholder="Например: ДТ" required>
+<label>Количество, л</label><input id="qty" type="number" min="0.01" step="0.01" required>
+<label>Цена закупки, ₽/л</label><input id="price" type="number" min="0" step="0.01" required>
+</div>
+<div id="saleFields" style="display:none">
+<label>Закупка</label><select id="salePurchase" required></select>
+<label>Количество, л</label><input id="saleQty" type="number" min="0.01" step="0.01" required>
+<label>Цена продажи, ₽/л</label><input id="salePrice" type="number" min="0" step="0.01" required>
+<label>Комментарий</label><input id="saleComment">
+</div>
+<div id="expenseFields" style="display:none">
+<label>Закупка</label><select id="expensePurchase" required></select>
+<label>Вид расхода</label><input id="expenseType" placeholder="Например: доставка" required>
+<label>Сумма, ₽</label><input id="expenseAmount" type="number" min="0" step="0.01" required>
+<label>Комментарий</label><input id="expenseComment">
+</div>
+<div class="form-actions"><button type="button" class="secondary" onclick="closeForm()">Отмена</button><button type="submit">Сохранить</button></div>
+</form></div></div>
+
+<script>
+const KEY="fuel-account-v2";
+let db=JSON.parse(localStorage.getItem(KEY)||'{"purchases":[],"sales":[],"expenses":[]}');
+const rub=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2}).format(Number(n)||0);
+const num=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(Number(n)||0);
+const today=()=>new Date().toISOString().slice(0,10);
+const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function persist(){localStorage.setItem(KEY,JSON.stringify(db));render();}
+function nextId(){let n=1;while(db.purchases.some(x=>x.id==="З-"+String(n).padStart(3,"0")))n++;return "З-"+String(n).padStart(3,"0")}
+function stats(p){
+ let ss=db.sales.filter(x=>x.purchaseId===p.id), ee=db.expenses.filter(x=>x.purchaseId===p.id);
+ let sold=ss.reduce((a,x)=>a+x.qty,0), revenue=ss.reduce((a,x)=>a+x.qty*x.price,0), exp=ee.reduce((a,x)=>a+x.amount,0);
+ let cost=sold*p.buyPrice; return {sold,revenue,cost,exp,profit:revenue-cost-exp,rest:p.qty-sold};
+}
+function render(){
+ let rev=0,cost=0,exp=0,profit=0;
+ db.purchases.forEach(p=>{let x=stats(p);rev+=x.revenue;cost+=x.cost;exp+=x.exp;profit+=x.profit});
+ kRevenue.textContent=rub(rev);kCost.textContent=rub(cost);kExpenses.textContent=rub(exp);kProfit.textContent=rub(profit);kProfit.className="value "+(profit<0?"red":"green");
+ purchaseCount.textContent=db.purchases.length+" шт.";
+ purchaseList.innerHTML=db.purchases.length?db.purchases.slice().reverse().map(p=>{let x=stats(p),i=db.purchases.indexOf(p);
+ return `<div class="card"><div class="row"><div><b>${esc(p.id)}</b> <span class="tag">${esc(p.brand)}</span><div class="small">${esc(p.date)} · ${rub(p.buyPrice)}/л · куплено ${num(p.qty)} л</div></div><div class="profit ${x.profit<0?'red':'green'}">${rub(x.profit)}</div></div><div class="small" style="margin-top:10px">Продано ${num(x.sold)} л · остаток ${num(x.rest)} л · выручка ${rub(x.revenue)} · расходы ${rub(x.exp)}</div><div class="actions2"><button class="secondary smallbtn" onclick="editPurchase(${i})">Изменить</button><button class="danger smallbtn" onclick="deletePurchase(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Пока нет закупок</div>';
+ salesList.innerHTML=db.sales.length?db.sales.slice().reverse().map((x,revI)=>{let i=db.sales.length-1-revI;return `<div class="card"><div class="row"><div><b>${esc(x.purchaseId)}</b><div class="small">${esc(x.date)} · ${num(x.qty)} л × ${rub(x.price)}/л</div></div><b>${rub(x.qty*x.price)}</b></div>${x.comment?`<div class="small" style="margin-top:7px">${esc(x.comment)}</div>`:""}<div class="actions2"><button class="danger smallbtn" onclick="deleteSale(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Продаж пока нет</div>';
+ expensesList.innerHTML=db.expenses.length?db.expenses.slice().reverse().map((x,revI)=>{let i=db.expenses.length-1-revI;return `<div class="card"><div class="row"><div><b>${esc(x.purchaseId)}</b><div class="small">${esc(x.date)} · ${esc(x.type)}</div></div><b>${rub(x.amount)}</b></div>${x.comment?`<div class="small" style="margin-top:7px">${esc(x.comment)}</div>`:""}<div class="actions2"><button class="danger smallbtn" onclick="deleteExpense(${i})">Удалить</button></div></div>`}).join(""):'<div class="card empty">Расходов пока нет</div>';
+}
+function fillSelect(el){el.innerHTML=db.purchases.length?db.purchases.map(p=>`<option value="${esc(p.id)}">${esc(p.id)} — ${esc(p.brand)} — ${num(p.qty)} л</option>`).join(""):'<option value="">Нет закупок</option>'}
+function openForm(t, edit=-1){
+ form.reset(); date.value=today(); type.value=t; editIndex.value=edit;
+ purchaseFields.style.display=t==="purchase"?"block":"none";saleFields.style.display=t==="sale"?"block":"none";expenseFields.style.display=t==="expense"?"block":"none";
+ formTitle.textContent=(edit>=0?"Изменить ":"Новая ")+(t==="purchase"?"закупку":t==="sale"?"продажу":"расход");
+ if(t==="purchase"){if(edit>=0){let p=db.purchases[edit];date.value=p.date;purchaseId.value=p.id;brand.value=p.brand;qty.value=p.qty;price.value=p.buyPrice}else purchaseId.value=nextId()}
+ if(t==="sale"){fillSelect(salePurchase);if(edit>=0){let x=db.sales[edit];date.value=x.date;salePurchase.value=x.purchaseId;saleQty.value=x.qty;salePrice.value=x.price;saleComment.value=x.comment||""}}
+ if(t==="expense"){fillSelect(expensePurchase);if(edit>=0){let x=db.expenses[edit];date.value=x.date;expensePurchase.value=x.purchaseId;expenseType.value=x.type;expenseAmount.value=x.amount;expenseComment.value=x.comment||""}}
+ modal.classList.add("show");
+}
+function closeForm(){modal.classList.remove("show")}
+function saveForm(ev){
+ ev.preventDefault();let t=type.value, i=+editIndex.value;
+ if(t==="purchase"){
+  if(db.purchases.some((x,j)=>x.id===purchaseId.value.trim()&&j!==i))return alert("Такой ID уже есть.");
+  let old=i>=0?db.purchases[i]:null;
+  let sold=old?db.sales.filter(x=>x.purchaseId===old.id).reduce((a,x)=>a+x.qty,0):0;
+  if(+qty.value<sold)return alert("Количество закупки нельзя сделать меньше уже проданного объема.");
+  let obj={id:purchaseId.value.trim(),date:date.value,brand:brand.value.trim(),qty:+qty.value,buyPrice:+price.value};
+  if(i>=0){if(old.id!==obj.id){db.sales.forEach(x=>{if(x.purchaseId===old.id)x.purchaseId=obj.id});db.expenses.forEach(x=>{if(x.purchaseId===old.id)x.purchaseId=obj.id})}db.purchases[i]=obj}else db.purchases.push(obj);
+ }else if(t==="sale"){
+  let p=db.purchases.find(x=>x.id===salePurchase.value);let other=db.sales.reduce((a,x,j)=>a+(j===i&&i>=0?0:(x.purchaseId===salePurchase.value?x.qty:0)),0);
+  if(!p||+saleQty.value>p.qty-other+1e-9)return alert("Продажа больше доступного остатка.");
+  let obj={date:date.value,purchaseId:salePurchase.value,qty:+saleQty.value,price:+salePrice.value,comment:saleComment.value.trim()};
+  if(i>=0)db.sales[i]=obj;else db.sales.push(obj);
+ }else{
+  let obj={date:date.value,purchaseId:expensePurchase.value,type:expenseType.value.trim(),amount:+expenseAmount.value,comment:expenseComment.value.trim()};
+  if(i>=0)db.expenses[i]=obj;else db.expenses.push(obj);
+ }
+ persist();closeForm();
+}
+function editPurchase(i){openForm("purchase",i)}
+function deletePurchase(i){let p=db.purchases[i];if(!confirm(`Удалить закупку ${p.id}? Все связанные продажи и расходы тоже будут удалены.`))return;db.purchases.splice(i,1);db.sales=db.sales.filter(x=>x.purchaseId!==p.id);db.expenses=db.expenses.filter(x=>x.purchaseId!==p.id);persist()}
+function deleteSale(i){if(confirm("Удалить эту продажу?")){db.sales.splice(i,1);persist()}}
+function deleteExpense(i){if(confirm("Удалить этот расход?")){db.expenses.splice(i,1);persist()}}
+function backup(){
+ let blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="учет-топлива-"+today()+".json";a.click();URL.revokeObjectURL(a.href)
+}
+function restore(ev){
+ let f=ev.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.purchases||!x.sales||!x.expenses)throw 0;if(!confirm("Заменить текущие данные данными из резервной копии?"))return;db=x;persist();alert("Данные восстановлены.")}catch(e){alert("Файл резервной копии не распознан.")}ev.target.value=""};r.readAsText(f)
+}
+function showSection(n){document.querySelectorAll(".section").forEach(x=>x.classList.remove("active"));document.getElementById(n).classList.add("active")}
+render();
+</script>
+</body></html>
